@@ -602,16 +602,19 @@ const formatTime12Hour = (time24) => {
         prompt: aiPrompt
       });
 
-      const text = res.data.text;
+      // prefer server-parsed task
+      let taskData = res.data?.task ?? null;
+      const text = res.data?.text ?? "";
 
-      let taskData;
-      try {
-        taskData = JSON.parse(text);
-      } catch {
-        alert("AI response could not be parsed. Here's the raw response:\n" + text);
-        return;
+      if (!taskData) {
+        try {
+          taskData = JSON.parse(text);
+        } catch {
+          alert("AI response could not be parsed. Here's the raw response:\n" + text);
+          return;
+        }
       }
-
+      
       if (!taskData.name) taskData.name = "Untitled Task";
       if (!taskData.date) taskData.date = "No date";
       if (!taskData.time) taskData.time = "No time";
