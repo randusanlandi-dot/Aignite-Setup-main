@@ -60,22 +60,44 @@ app.post("/api/generate-task", async (req, res) => {
   }
 
   try {
-    // call the generateText endpoint with the expected fields
-    const textUrl = url.replace(/:generateContent$/, ':generateText');
-    const prompt = `Create a single task with name, date, time, and description based on this prompt: "${prompt}". Return ONLY valid JSON like {"name":"...","date":"YYYY-MM-DD","time":"HH:MM","desc":"..."}`
+    const modelPrompt = `Create a single task with name, date, time, and description based on this prompt: "${prompt}". Return ONLY valid JSON like {"name":"...","date":"YYYY-MM-DD","time":"HH:MM","desc":"..."}`;
+ 
+    // Correct Gemini API request format
+    const requestBody = {
+      contents: [{
+        parts: [{
+          text: modelPrompt
+        }]
+      }]
     };
 
-    const response = await axios.post(textUrl, { prompt }, { headers });
+    const response = await axios.post(url, requestBody, { headers });
+ 
+    // Extract text from response
+    const generatedText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    // Common response shapes: try candidates -> output -> content -> text
-    const generatedText =
-      response.data?.candidates?.[0]?.content ||
-      response.data?.candidates?.[0]?.output?.[0]?.content ||
-      response.data?.output?.[0]?.content?.[0]?.text ||
-      response.data?.candidates?.[0]?.content?.[0]?.text ||
-      JSON.stringify(response.data);
+    if (!generatedText) {
+      throw new Error("No text generated from API");
+    }
 
-    res.json({ text: generatedText });
+    // Try to parse JSON directly, otherwise try to extract first {...} substring
+    let parsedTask = null;
+    try {
+      parsedTask = JSON.parse(generatedText);
+    } catch (e) {
+      // try to extract JSON object substring
+      const match = generatedText.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          parsedTask = JSON.parse(match[0]);
+        } catch (e2) {
+          parsedTask = null;
+        }
+      }
+    }
+
+    // Return both raw text and parsed object (if available)
+    return res.json({ text: generatedText, task: parsedTask });
   } catch (err) {
     console.error("Generative API error:", err.response?.data || err.message || err);
     res.status(500).json({ error: "AI task generation failed." });
