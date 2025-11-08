@@ -75,6 +75,7 @@ const [aiPrompt, setAiPrompt] = React.useState(""); // input for AI prompt
   time: "",
   desc: "",
 });
+const [isGenerating, setIsGenerating] = React.useState(false);
 const [isExploded, setIsExploded] = React.useState(false);
 const [charge, setCharge] = React.useState(0);
 const [showExplosion, setShowExplosion] = React.useState(false);
@@ -87,6 +88,8 @@ const [musicOn, setMusicOn] = React.useState(() => {
   return saved !== null ? JSON.parse(saved) : true;
 });
 const bgmRef = React.useRef(null);
+const bgmLockRef = React.useRef(false); // prevents bgm volume changes during explosion
+const sadRef = React.useRef(null); // for sad.mp3
 
 React.useEffect(() => {
   const handleUserInteraction = () => {
@@ -123,17 +126,81 @@ React.useEffect(() => {
     setShowExplosion(true);
     setIsOrphieOpen(true); // force open
     setIsMaxed(true);
-      setIsExploded(true);
+    setIsExploded(true);
 
-    // Play sound once
-    const audio = new Audio("/assets/explosion.mp3");
-    audio.volume = 0.7;
-    audio.play().catch(() => {}); // ignore if autoplay blocked
+    // 💥 Explosion SFX
+    const explosionAudio = new Audio("/assets/explosion.mp3");
+    explosionAudio.volume = 0.7;
+    explosionAudio.play().catch(() => {});
 
-    // Hide explosion after a bit
+    // Hide explosion after 1.7s
     setTimeout(() => setShowExplosion(false), 1700);
+
+    // === AUDIO SEQUENCE ===
+    bgmLockRef.current = true; // lock BGM temporarily
+
+    // 🔇 Instantly mute bgm.mp3
+    if (bgmRef.current) {
+      bgmRef.current.volume = 0;
+    }
+
+    // 1️⃣ After 1s → play sad.mp3 at 60%
+    setTimeout(() => {
+      sadRef.current = new Audio("/assets/sad.mp3");
+      sadRef.current.volume = 0.6;
+      sadRef.current.playbackRate = 0.9; // slightly slower for emotional effect 💔
+      sadRef.current.play().catch(() => {});
+
+      // 2️⃣ After 8s → fade sad.mp3 to 0% over 2s
+      setTimeout(() => {
+        const fadeDuration = 2000; // 2 seconds
+        const steps = 20;
+        const stepVol = sadRef.current.volume / steps;
+        let step = 0;
+
+        const fade = setInterval(() => {
+          if (!sadRef.current) return clearInterval(fade);
+          if (step < steps) {
+            sadRef.current.volume = Math.max(sadRef.current.volume - stepVol, 0);
+            step++;
+          } else {
+            clearInterval(fade);
+            sadRef.current.pause();
+            sadRef.current = null;
+          }
+        }, fadeDuration / steps);
+      }, 8000);
+    }, 1000);
+
+    // 3️⃣ After 11s total → unlock and fade bgm back in naturally
+    setTimeout(() => {
+  bgmLockRef.current = false;
+
+  if (bgmRef.current && musicOn) {
+    const targetVolume = 0.25;
+    const fadeDuration = 2500; // 2.5 seconds
+    const fadeSteps = 25;
+    const stepTime = fadeDuration / fadeSteps;
+    const volumeIncrement = targetVolume / fadeSteps;
+
+    const fadeInterval = setInterval(() => {
+      if (!bgmRef.current || bgmLockRef.current) return clearInterval(fadeInterval);
+
+      if (bgmRef.current.volume < targetVolume) {
+        bgmRef.current.volume = Math.min(
+          bgmRef.current.volume + volumeIncrement,
+          targetVolume
+        );
+      } else {
+        clearInterval(fadeInterval);
+      }
+    }, stepTime);
   }
-}, [charge]);
+}, 11000);
+
+  }
+}, [charge, musicOn]);
+
 const [isOrphieOpen, setIsOrphieOpen] = React.useState(true);
 // === Weird charge mechanic ===
 const [isMaxed, setIsMaxed] = React.useState(false);
@@ -146,33 +213,30 @@ React.useEffect(() => {
     bgmRef.current.volume = 0; // start muted
   }
 
-  // Function to play music if allowed
   const tryPlay = () => {
     if (!bgmRef.current) return;
-    bgmRef.current.play().catch(() => {
-      // Autoplay blocked, wait for user interaction
-      console.log("Autoplay blocked, waiting for interaction");
-    });
+    bgmRef.current.play().catch(() => {});
   };
 
-  // If musicOn is true, try to play
+  // 🚫 If explosion sequence is active, block bgm volume change
+  if (bgmLockRef.current) return;
+
   if (musicOn) {
     tryPlay();
-    // Fade in to 50%
     const targetVolume = 0.25;
     const fadeIn = setInterval(() => {
+      if (!bgmRef.current || bgmLockRef.current) return clearInterval(fadeIn);
       if (bgmRef.current.volume < targetVolume) {
         bgmRef.current.volume = Math.min(bgmRef.current.volume + 0.05, targetVolume);
       } else clearInterval(fadeIn);
     }, 50);
   } else {
-    // Fade out to 0% over 1s
     const duration = 1000;
     const steps = 20;
     const decrement = bgmRef.current.volume / steps;
     let i = 0;
     const fadeOut = setInterval(() => {
-      if (!bgmRef.current) return;
+      if (!bgmRef.current || bgmLockRef.current) return clearInterval(fadeOut);
       if (i < steps) {
         bgmRef.current.volume = Math.max(bgmRef.current.volume - decrement, 0);
         i++;
@@ -209,22 +273,31 @@ const handleOrphieClick = () => {
   });
 };
 const formatTime12Hour = (time24) => {
-  if (!time24) return ""; // handle empty string
-  const [hourStr, minute] = time24.split(":");
-  let hour = parseInt(hourStr, 10);
+  // Handle special cases or placeholders
+  if (!time24 || time24.toLowerCase() === "no time") return "No time";
+
+  // Validate format "HH:MM"
+  const parts = time24.split(":");
+  if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
+    return time24; // fallback: just return whatever it is
+  }
+
+  let [hour, minute] = parts.map(Number);
   const ampm = hour >= 12 ? "PM" : "AM";
   hour = hour % 12 || 12; // convert 0 → 12
-  return `${hour}:${minute} ${ampm}`;
+  return `${hour}:${minute.toString().padStart(2, "0")} ${ampm}`;
 };
+
   
   const messages = [
     "Tugas yang baik adalah tugas yang dikumpulkan.",
-    "Your mom very large.",
+    "The price of excellence is eternal vigilance.",
     "Nugas now, play games later.",
     "Doomscrolling leads to your doom.",
     "Have you checked your stove today?",
     "Don't forget to take breaks!",
-    "Don't forget to drink water!"
+    "Don't forget to drink water!",
+    "Also try Guilty Gear -STRIVE-!"
   ];
 
   const deleteTask = (index) => {
@@ -593,16 +666,19 @@ const formatTime12Hour = (time24) => {
             />
 
             <button
-  className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded mt-2 font-bold"
+  className={`${
+    isGenerating ? "bg-blue-900 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500"
+  } text-white p-2 rounded mt-2 font-bold flex justify-center items-center gap-2`}
+  disabled={isGenerating}
   onClick={async () => {
-    if (!aiPrompt.trim()) return;
+    if (!aiPrompt.trim() || isGenerating) return;
+    setIsGenerating(true);
 
     try {
       const res = await axios.post("http://localhost:5000/api/generate-task", {
         prompt: aiPrompt
       });
 
-      // prefer server-parsed task
       let taskData = res.data?.task ?? null;
       const text = res.data?.text ?? "";
 
@@ -614,24 +690,36 @@ const formatTime12Hour = (time24) => {
           return;
         }
       }
-      
+
       if (!taskData.name) taskData.name = "Untitled Task";
       if (!taskData.date) taskData.date = "No date";
       if (!taskData.time) taskData.time = "No time";
       if (!taskData.desc) taskData.desc = "(No description)";
 
       setTasks(prev => [...prev, { ...taskData, status: "Active", completed: false }]);
-
       setAiPrompt("");
       setIsSidebarOpen(false);
       setAiMode(false);
     } catch (err) {
       console.error(err);
       alert("AI task generation failed. Check console for details.");
+    } finally {
+      setIsGenerating(false);
     }
   }}
 >
-  Generate Task
+  {isGenerating ? (
+    <>
+      <motion.div
+        className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"
+        animate={{ rotate: 360 }}
+        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+      />
+      Generating...
+    </>
+  ) : (
+    "Generate Task"
+  )}
 </button>
 
             <button

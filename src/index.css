@@ -24,7 +24,7 @@ code {
 }
 
 @keyframes marquee {
-  0%   { transform: translateX(100%); } /* start off right */
+  0%   { transform: translateX(150%); } /* start off right */
   100% { transform: translateX(-100%); } /* move fully left */
 }
 

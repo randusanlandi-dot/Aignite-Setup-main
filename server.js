@@ -60,7 +60,8 @@ app.post("/api/generate-task", async (req, res) => {
   }
 
   try {
-    const modelPrompt = `Create a single task with name, date, time, and description based on this prompt: "${prompt}". Return ONLY valid JSON like {"name":"...","date":"YYYY-MM-DD","time":"HH:MM","desc":"..."}`;
+    const modelPrompt = `Create a single task with name, date, time, and description based on this prompt: "${prompt}". Return ONLY valid JSON like {"name":"...","date":"YYYY-MM-DD","time":"HH:MM","desc":"..."}.
+    If the user does not provide a date or time, fill in the date as No date and time as No time. If the user writes "today" or "tomorrow", or similar, write that instead of a date in all lowercase.`;
  
     // Correct Gemini API request format
     const requestBody = {
