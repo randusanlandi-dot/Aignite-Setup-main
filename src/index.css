@@ -27,3 +27,11 @@ code {
   0%   { transform: translateX(100%); } /* start off right */
   100% { transform: translateX(-100%); } /* move fully left */
 }
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
